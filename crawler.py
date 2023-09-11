@@ -1,3 +1,4 @@
+# fetching data with db connection and uploads
 import asyncio
 from pyrogram import Client
 from pyrogram.errors import FloodWait
@@ -6,38 +7,26 @@ import json
 import pandas as pd
 import sqlite3
 import requests
+import ast
 
-# Allow running an event loop within a Jupyter notebook or IPython shell
 nest_asyncio.apply()
 
-token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJwbGFuIjoibm9ybWFsIiwiY3JlYXRlZERhdGUiOiIyMDIzLTA0LTA5VDA4OjQyOjEyLjk3N1oiLCJ1c2VySWQiOiIxMTEiLCJkdXJhdGlvbiI6OTAsImV4cGlyZURhdGUiOiIyMDIzLTA3LTA4VDA4OjQyOjEyLjk3N1oiLCJtYXhSZXF1ZXN0UGVyRGF5IjoidW5saW1pdGVkIiwibWF4UmVxdWVzdFBlck1vbnRoIjoidW5saW1pdGVkIiwiY29zdFBlclJlcXVlc3QiOjUwLCJjb3N0UGVyTW9udGgiOjAsImlhdCI6MTY4MTAyOTczM30._Klx52YY2ypSs-cw43PGYe5KPbgoBzq5zuUgy6Cq5h8'
 api_id = 20094984
 api_hash = '99df5bd55bc44d3627eb1dffb0517aea'
-TARGET = input("Enter a channel id: ")
+TARGET = "qomstu"
 
 app = Client("my_account", api_id=api_id, api_hash=api_hash)
 data = []
 
-def emotion(text):
-  headers = {
-    'Authorization': f'Bearer {token}'
-  }
-  # API endpoint
-  url = 'https://ai.aradcloud.ir/emotionRecognition/'
-  # Make the API request
-  response = requests.post(url, headers=headers, text=text)
-  # Check if the request was successful
-  if response.status_code == 200:
-    # Parse the JSON response
-    data = response.json()
-
-    # Extract emotions from the response
-    emotions = data['emotions']
-
-    # Now, you can add the emotions data to your database in JSON format
-    # Use your database library to insert the data
-  else:
-    print(f'Error: {response.status_code} - {response.text}')
+async def emotion(text):
+  try:
+      response = requests.post(
+      'https://ai.aradcloud.ir/emotionRecognition/',
+      json={"text":text},
+      headers={"Accept-encoding":"json","Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJwbGFuIjoibm9ybWFsIiwiY3JlYXRlZERhdGUiOiIyMDIzLTA0LTA5VDA4OjQyOjEyLjk3N1oiLCJ1c2VySWQiOiIxMTEiLCJkdXJhdGlvbiI6OTAsImV4cGlyZURhdGUiOiIyMDIzLTA3LTA4VDA4OjQyOjEyLjk3N1oiLCJtYXhSZXF1ZXN0UGVyRGF5IjoidW5saW1pdGVkIiwibWF4UmVxdWVzdFBlck1vbnRoIjoidW5saW1pdGVkIiwiY29zdFBlclJlcXVlc3QiOjUwLCJjb3N0UGVyTW9udGgiOjAsImlhdCI6MTY4MTAyOTczM30._Klx52YY2ypSs-cw43PGYe5KPbgoBzq5zuUgy6Cq5h8","Content-type":"application/json"})
+  except Exception as e:
+      print(f"An error occurred: {e}")
+  return response.text
 
 async def main():
     async with app:
@@ -53,31 +42,33 @@ async def main():
                       text TEXT,
                       date TEXT,
                       views INTEGER,
-                      reaction JSON)''')
+                      reaction JSON,
+                      emotion JSON)''')
 
         # Retrieve the chat history
         messages = app.get_chat_history(TARGET,10)
-        print(messages)
         # Iterate through the messages and insert each one into the table
         async for message in app.get_chat_history(TARGET,10):
             allstuff=(await app.get_messages(TARGET, message.id))
             allstuff=json.loads(str(allstuff))
-            print(allstuff['id'])
-            emotion(allstuff['text'])
             emojis=allstuff['reactions']['reactions']
             reaction=""
             for item in emojis:
-              print('{"emoji":'+'"'+item["emoji"]+'"'+','+'"count":'+str(item["count"])+'}')
-              reaction+='{"emoji":'+'"'+item["emoji"]+'"'+','+'"count":'+str(item["count"])+'},'
-            c.execute("INSERT INTO messages (id, text, date, views, reaction) VALUES (?, ?, ?, ?, ?)",
-                      (message.id, message.text, message.date,message.views, reaction))
+              reaction+='"'+item["emoji"]+'":'+str(item["count"])+','
+            reaction=reaction[:len(reaction)-1]
+            reaction="{"+reaction+"}"
+            print(reaction)
+            emo = asyncio.run(emotion(message.text))
+            c.execute("INSERT INTO messages (id, text, date, views, reaction, emotion) VALUES (?, ?, ?, ?, ?, ?)",
+                      (message.id, message.text, message.date,message.views, reaction , emo))
         # Commit the changes to the database
-        print(type(reaction))
         conn.commit()
-        i=0
-        for item in emojis:
-          item=c.execute("SELECT reaction FROM messages").fetchall()
-          print(item)
+        reactdb=[]
+        for item in range(len(emojis)):
+          reactdb.append(c.execute("SELECT reaction FROM messages").fetchall()[item][0])
+          reactdb[item]=json.loads(reactdb[item])
+          print(type(reactdb[item]))
+          print(reactdb[item])
         # Close the connection
         conn.close()
 
